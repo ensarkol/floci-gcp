@@ -49,10 +49,10 @@ class GcsServiceAccountAuthenticationTest {
 
             try {
                 assertThat(storage.get(bucketName)).isNotNull();
-                // SDKs may use a credential copy or a self-signed JWT without populating
-                // the original credential's OAuth token. Verify the outgoing requests.
+                // Scoped service-account credentials exchange their assertion at /token.
+                // Check the emitted token on the wire, allowing SDK credential copies and retries.
                 assertThat(authorizationHeaders).hasSizeGreaterThanOrEqualTo(2).allSatisfy(header ->
-                        assertThat(header).startsWith("Bearer ").hasSizeGreaterThan(7));
+                        assertThat(header).startsWith("Bearer floci-gcp-"));
             } finally {
                 assertThat(storage.delete(bucketName)).isTrue();
             }
