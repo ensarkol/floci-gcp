@@ -555,7 +555,8 @@ public class GcsService {
     }
 
     /**
-     * Bucket deletion and multipart mutations share the order bucket -> multipart -> object.
+     * Bucket deletion takes the IAM policy lock first, then shares the order
+     * bucket -> multipart -> object with multipart mutations.
      * An upload cannot be created or completed across deletion of its bucket; the multipart
      * monitor also prevents checkpoints from observing another upload's parts mid-mutation.
      */
@@ -2219,7 +2220,7 @@ public class GcsService {
         return URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    private static String computeCrc32c(byte[] data) {
+    static String computeCrc32c(byte[] data) {
         CRC32C crc = new CRC32C();
         crc.update(data);
         ByteBuffer buf = ByteBuffer.allocate(4);
@@ -2227,7 +2228,7 @@ public class GcsService {
         return Base64.getEncoder().encodeToString(buf.array());
     }
 
-    private static String computeMd5(byte[] data) {
+    static String computeMd5(byte[] data) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
             return Base64.getEncoder().encodeToString(md.digest(data));

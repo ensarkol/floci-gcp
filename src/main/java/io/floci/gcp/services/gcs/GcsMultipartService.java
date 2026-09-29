@@ -70,7 +70,7 @@ public class GcsMultipartService {
                 previous = number;
                 GcsMultipartUpload.Part part = upload.parts.get(number);
                 if (part == null || !part.etag().equals(item.get("ETag"))) { throw GcpException.invalidArgument("Missing part or mismatched ETag").withReason("InvalidPart"); }
-                if (i < requested.size() - 1 && part.data().length < 5 * 1024 * 1024) { throw GcpException.invalidArgument("Non-final parts must contain at least 5 MiB").withReason("EntityTooSmall"); }
+                if (i < requested.size() - 1 && part.data().length < 5 * 1024 * 1024) { throw GcpException.invalidArgument("Non-final parts must contain at least 5 MiB").withReason("InvalidArgument"); }
                 data.writeBytes(part.data());
             }
             GcsObjectMeta meta = gcs.putXmlMultipartObject(bucket, object, upload.contentType, data.toByteArray(), upload.metadata, baseUrl);

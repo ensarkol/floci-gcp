@@ -64,7 +64,9 @@ public class GcsXmlMultipartHandler {
                 case "PUT" -> {
                     int number = number(query.getFirst("partNumber"), 1, 10000);
                     GcsMultipartUpload.Part part = service.putPart(bucket, object, id, number, bytes == null ? new byte[0] : bytes, headers.getHeaderString("Content-MD5"));
-                    yield Response.ok().header("ETag", part.etag()).build();
+                    yield Response.ok().header("ETag", part.etag())
+                            .header("x-goog-hash", "crc32c=" + GcsService.computeCrc32c(part.data())
+                                    + ",md5=" + GcsService.computeMd5(part.data())).build();
                 }
                 case "POST" -> {
                     List<Map<String, String>> requested = XmlParser.parseRecords(new String(bytes == null ? new byte[0] : bytes, StandardCharsets.UTF_8), "CompleteMultipartUpload", "Part");
@@ -72,7 +74,8 @@ public class GcsXmlMultipartHandler {
                     GcsObjectMeta meta = service.complete(bucket, object, id, requested, base);
                     yield Response.ok(new XmlBuilder().start("CompleteMultipartUploadResult", NS).elem("Location", meta.getMediaLink())
                             .elem("Bucket", bucket).elem("Key", object).elem("ETag", "\"" + meta.getEtag() + "\"").end("CompleteMultipartUploadResult").build(), MediaType.APPLICATION_XML)
-                            .header("ETag", "\"" + meta.getEtag() + "\"").header("x-goog-generation", meta.getGeneration()).build();
+                            .header("ETag", "\"" + meta.getEtag() + "\"").header("x-goog-generation", meta.getGeneration())
+                            .header("x-goog-hash", "crc32c=" + meta.getCrc32c()).build();
                 }
                 case "DELETE" -> { service.abort(bucket, object, id); yield Response.noContent().build(); }
                 case "GET" -> {
