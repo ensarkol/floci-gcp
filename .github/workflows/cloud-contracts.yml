@@ -54,11 +54,10 @@ jobs:
             maven:3.9-eclipse-temurin-25@sha256:d67198007bb4441b07d45587320f83154de80ece3608f80408ef14c6ea847753 \
             mvn -B -ntp dependency:get -Dartifact=org.junit.platform:junit-platform-launcher:1.12.2
           docker network create --internal contracts
-          # Keep the TLS proxy active and accept the public Docker hostname
-          # forwarded to Quarkus's loopback listeners, as in compatibility.yml.
+          # Keep the TLS proxy active with default Host validation, as in compatibility.yml.
           docker run -d --name floci-gcp --network contracts \
             -e FLOCI_GCP_TLS_ENABLED=true -e FLOCI_GCP_TLS_HTTPS_PORT=0 \
-            -e FLOCI_GCP_HOSTNAME=floci-gcp -e QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST=false \
+            -e FLOCI_GCP_HOSTNAME=floci-gcp \
             -e FLOCI_GCP_BASE_URL=http://floci-gcp:4588 -e FLOCI_GCP_STORAGE_MODE=persistent \
             -e FLOCI_GCP_SERVICES_KAFKA_MOCK=true -e FLOCI_GCP_SERVICES_CLOUDRUN_MOCK=true \
             -e FLOCI_GCP_SERVICES_CLOUDSQL_MOCK=true -e FLOCI_GCP_SERVICES_GKE_MOCK=true \
