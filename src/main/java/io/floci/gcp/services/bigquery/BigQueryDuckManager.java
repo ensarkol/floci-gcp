@@ -41,6 +41,7 @@ public class BigQueryDuckManager implements ContainerTeardown {
 
     private volatile String resolvedUrl;
     private volatile String containerId;
+    private volatile boolean containerStopped;
 
     @Inject
     public BigQueryDuckManager(ContainerBuilder containerBuilder,
@@ -55,6 +56,10 @@ public class BigQueryDuckManager implements ContainerTeardown {
 
     /** Returns the floci-duck base URL, starting the container on first use. */
     public synchronized String ensureReady() {
+        if (containerStopped) {
+            throw GcpException.unavailable("BigQuery SQL engine is shutting down");
+        }
+
         if (resolvedUrl != null) {
             return resolvedUrl;
         }
@@ -134,6 +139,7 @@ public class BigQueryDuckManager implements ContainerTeardown {
 
     @Override
     public synchronized void stopManagedContainers() {
+        containerStopped = true;
         if (containerId == null) {
             return;
         }

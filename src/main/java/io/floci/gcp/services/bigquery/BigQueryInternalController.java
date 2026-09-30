@@ -72,7 +72,7 @@ public class BigQueryInternalController {
     public Response rowsHead(@PathParam("projectId") String projectId,
                              @PathParam("datasetId") String datasetId,
                              @PathParam("tableId") String tableId) {
-        service.storedRows(projectId, datasetId, tableId);
+        service.getTable(projectId, datasetId, tableId);
         return Response.ok().type("application/x-ndjson").header("Accept-Ranges", "none").build();
     }
 
