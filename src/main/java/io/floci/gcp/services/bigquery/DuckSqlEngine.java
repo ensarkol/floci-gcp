@@ -65,16 +65,15 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
         Staging staging = stage(request.projectId(), translation.tables(), translation.informationSchema(), tables,
                 flociEndpoint);
         String sql = translation.sql();
-        String setupSql = staging.setup();
         if (request.dryRun()) {
-            List<Column> columns = describe(sql, setupSql, flociEndpoint);
+            List<Column> columns = describe(sql, staging.emptySetup(), flociEndpoint);
             return new Result(schemaOf(columns), List.of(), "SELECT", staging.bytesProcessed());
         }
 
-        DuckClient.DuckResult result = run(sql, setupSql, flociEndpoint, null);
+        DuckClient.DuckResult result = run(sql, staging.setup(), flociEndpoint, null);
         if (result.columns() == null) {
-            List<Column> columns = describe(sql, setupSql, flociEndpoint);
-            return new Result(schemaOf(columns), fetch(sql, setupSql, flociEndpoint, columns), "SELECT",
+            List<Column> columns = describe(sql, staging.emptySetup(), flociEndpoint);
+            return new Result(schemaOf(columns), fetch(sql, staging.setup(), flociEndpoint, columns), "SELECT",
                     staging.bytesProcessed());
         }
         List<Column> columns = columns(result.columns().stream()
@@ -125,7 +124,7 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
         if (request.dryRun()) {
             // EXPLAIN binds the statement against the staged tables without running it, so a missing
             // column or a malformed clause fails the dry run just as it would fail the real one.
-            run("EXPLAIN " + translation.sql(), staging.setup(), flociEndpoint, null);
+            run("EXPLAIN " + translation.sql(), staging.emptySetup(), flociEndpoint, null);
             return new DmlResult(0, 0, 0, 0, List.of(), staging.bytesProcessed());
         }
         String followup = "SELECT * FROM " + DuckTypes.quoteIdentifier(target.datasetId()) + "."
@@ -378,7 +377,7 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
         return rows;
     }
 
-    private record Staging(String setup, long bytesProcessed) {}
+    private record Staging(String setup, String emptySetup, long bytesProcessed) {}
 
     /**
      * Setup SQL creating every referenced table in DuckDB. Views are expanded: their own
@@ -392,14 +391,17 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
     private Staging stage(String projectId, Set<SqlDialectTranslator.TableRef> refs,
                           Set<InformationSchema.Ref> informationSchema, Tables tables, String flociEndpoint) {
         StringBuilder setup = new StringBuilder("SET TimeZone = 'UTC';\n");
+        StringBuilder emptySetup = new StringBuilder("SET TimeZone = 'UTC';\n");
         long[] bytes = {0};
         Set<String> schemas = new HashSet<>();
         Set<SqlDialectTranslator.TableRef> staged = new HashSet<>();
         for (SqlDialectTranslator.TableRef ref : refs) {
-            stageOne(projectId, ref, tables, flociEndpoint, setup, schemas, staged, new LinkedHashSet<>(), bytes);
+            stageOne(projectId, ref, tables, flociEndpoint, setup, emptySetup, schemas, staged, new LinkedHashSet<>(), bytes);
         }
         if (!informationSchema.isEmpty()) {
             setup.append("CREATE SCHEMA IF NOT EXISTS ").append(DuckTypes.quoteIdentifier(InformationSchema.SCHEMA))
+                    .append(";\n");
+            emptySetup.append("CREATE SCHEMA IF NOT EXISTS ").append(DuckTypes.quoteIdentifier(InformationSchema.SCHEMA))
                     .append(";\n");
         }
         for (InformationSchema.Ref ref : informationSchema) {
@@ -411,15 +413,15 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
             } else {
                 url.append("region=").append(encode(ref.region()));
             }
-            setup.append(stageRows(DuckTypes.quoteIdentifier(InformationSchema.SCHEMA) + "."
-                    + DuckTypes.quoteIdentifier(ref.stagedName()), InformationSchema.columns(ref.view()), empty,
-                    url.toString())).append('\n');
+            String tableTarget = DuckTypes.quoteIdentifier(InformationSchema.SCHEMA) + "." + DuckTypes.quoteIdentifier(ref.stagedName());
+            setup.append(stageRows(tableTarget, InformationSchema.columns(ref.view()), empty, url.toString())).append('\n');
+            emptySetup.append(stageRows(tableTarget, InformationSchema.columns(ref.view()), true, url.toString())).append('\n');
         }
-        return new Staging(setup.toString(), bytes[0]);
+        return new Staging(setup.toString(), emptySetup.toString(), bytes[0]);
     }
 
     private void stageOne(String projectId, SqlDialectTranslator.TableRef ref, Tables tables, String flociEndpoint,
-                          StringBuilder setup, Set<String> schemas, Set<SqlDialectTranslator.TableRef> staged,
+                          StringBuilder setup, StringBuilder emptySetup, Set<String> schemas, Set<SqlDialectTranslator.TableRef> staged,
                           Set<SqlDialectTranslator.TableRef> expanding, long[] bytes) {
         if (staged.contains(ref)) {
             return;
@@ -431,24 +433,30 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
         Table table = tables.table(ref.datasetId(), ref.tableId());
         String viewQuery = table.viewQuery();
         String ddl;
+        String emptyDdl;
         if (viewQuery != null) {
             SqlDialectTranslator.Translation view = SqlDialectTranslator.translate(viewQuery, projectId,
                     ref.datasetId(), SqlDialectTranslator.QueryParameters.none());
             for (SqlDialectTranslator.TableRef dependency : view.tables()) {
-                stageOne(projectId, dependency, tables, flociEndpoint, setup, schemas, staged, expanding, bytes);
+                stageOne(projectId, dependency, tables, flociEndpoint, setup, emptySetup, schemas, staged, expanding, bytes);
             }
             ddl = "CREATE VIEW " + DuckTypes.quoteIdentifier(ref.datasetId()) + "."
                     + DuckTypes.quoteIdentifier(ref.tableId()) + " AS " + view.sql() + ";";
+            emptyDdl = ddl;
         } else {
             List<Map<String, Object>> rows = tables.rows(ref.datasetId(), ref.tableId());
             bytes[0] += estimateBytes(rows);
             ddl = stageTable(projectId, ref, table, rows.isEmpty(), flociEndpoint);
+            emptyDdl = stageTable(projectId, ref, table, true, flociEndpoint);
         }
         if (schemas.add(ref.datasetId())) {
             setup.append("CREATE SCHEMA IF NOT EXISTS ").append(DuckTypes.quoteIdentifier(ref.datasetId()))
                     .append(";\n");
+            emptySetup.append("CREATE SCHEMA IF NOT EXISTS ").append(DuckTypes.quoteIdentifier(ref.datasetId()))
+                    .append(";\n");
         }
         setup.append(ddl).append('\n');
+        emptySetup.append(emptyDdl).append('\n');
         staged.add(ref);
         expanding.remove(ref);
     }
@@ -604,13 +612,53 @@ public class DuckSqlEngine implements BigQuerySqlEngine {
     private long estimateBytes(List<Map<String, Object>> rows) {
         long total = 0;
         for (Map<String, Object> row : rows) {
-            try {
-                total += mapper.writeValueAsBytes(row).length;
-            } catch (Exception e) {
-                throw GcpException.internal("Could not size table rows: " + e.getMessage());
-            }
+            total += estimateValue(row);
         }
         return total;
+    }
+
+    private long estimateValue(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof String str) {
+            long count = 0;
+            for (int i = 0, len = str.length(); i < len; i++) {
+                char c = str.charAt(i);
+                if (c <= 0x7F) {
+                    count++;
+                } else if (c <= 0x7FF) {
+                    count += 2;
+                } else if (Character.isHighSurrogate(c)) {
+                    count += 4;
+                    i++;
+                } else {
+                    count += 3;
+                }
+            }
+            return count;
+        }
+        if (value instanceof Number) {
+            return 8;
+        }
+        if (value instanceof Boolean) {
+            return 1;
+        }
+        if (value instanceof Map<?, ?> map) {
+            long size = 0;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                size += estimateValue(entry.getKey()) + estimateValue(entry.getValue());
+            }
+            return size;
+        }
+        if (value instanceof List<?> list) {
+            long size = 0;
+            for (Object item : list) {
+                size += estimateValue(item);
+            }
+            return size;
+        }
+        return 16;
     }
 
     /**

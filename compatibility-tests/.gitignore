@@ -35,6 +35,7 @@ lib/bats-support/
 lib/bats-assert/
 
 # Test results
+sdk-test-ruby/results/
 test-results/
 test-results.xml
 
