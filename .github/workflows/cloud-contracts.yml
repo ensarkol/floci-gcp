@@ -3,6 +3,7 @@ name: Cloud SDK contracts
 on:
   push:
     branches: ['main']
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -17,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: graalvm/setup-graalvm@5298d94fb55a4f185c602eeac5de1b553882abe2
         with:
           java-version: '25'
@@ -27,7 +28,7 @@ jobs:
         run: mvn -B -ntp test
       - name: Preserve JVM results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: jvm-regression
           path: target/surefire-reports/*.xml
@@ -105,7 +106,7 @@ jobs:
           docker network rm contracts || true
       - name: Contract evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: native-sdk-contracts
           path: evidence/
